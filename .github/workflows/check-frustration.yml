@@ -6,6 +6,8 @@ on:
 jobs:
   check-event:
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     steps:
       - name: Check for Frustration Removal Event
         id: check
@@ -22,20 +24,24 @@ jobs:
           else
             echo "active=false" >> $GITHUB_OUTPUT
           fi
-      - name: Send Email Notification
+      - name: Create Notification Issue
         if: steps.check.outputs.active == 'true'
-        uses: dawidd6/action-send-mail@v3
+        uses: actions/github-script@v7
         with:
-          server_address: smtp-mail.outlook.com
-          server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "Pokemon GO: You Can Remove Frustration NOW!"
-          to: kmandelos@outlook.com
-          from: ${{ secrets.EMAIL_USERNAME }}
-          body: |
-            Good news! A Frustration removal event is currently ACTIVE in Pokemon GO!
-            ${{ steps.check.outputs.event_info }}
-            You can now TM away Frustration from your Shadow Pokemon!
-            Check your site: https://dmandelas2-png.github.io/can-i-remove-frustration
-            This is an automated notification from your GitHub Actions workflow.
+          script: |
+            const title = 'Frustration Removal Event is ACTIVE NOW!';
+            const existingIssues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'frustration-alert'
+            });
+            if (existingIssues.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+            body: '## Pokemon GO: You Can Remove Frustration NOW!\n\nA Frustration removal event is currently active in Pokemon GO! You can now TM away Frustration from your Shadow Pokemon!\n\nCheck your site: https://dmandelas2-png.github.io/can-i-remove-frustration\n\nThis is an automated notification from your GitHub Actions workflow.',
+                labels: ['frustration-alert']
+              });
+            }
