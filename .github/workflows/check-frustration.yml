@@ -11,12 +11,11 @@ jobs:
         id: check
         run: |
           EVENTS=$(curl -s "https://raw.githubusercontent.com/zhenga8533/leak-duck/data/events.json")
-          KEYWORDS="frustration|rocket takeover|team go rocket takeover|forget frustration|remove frustration"
           NOW=$(date -u +%s)
-          ACTIVE=$(echo "$EVENTS" | jq -r --arg now "$NOW" --arg kw "$KEYWORDS" '[.[] | select(((.title // "" | ascii_downcase) | test($kw)) or ((.description // "" | ascii_downcase) | test($kw)) or ((.category // "" | ascii_downcase) | test($kw))) | select(((.start_time // "" | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) <= ($now | tonumber)) and ((.end_time // "" | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= ($now | tonumber)))] | length')
+          ACTIVE=$(echo "$EVENTS" | jq --arg now "$NOW" '[.[] | .[] | select((.title // "" | ascii_downcase | test("frustration|rocket takeover|team go rocket takeover|forget frustration|remove frustration")) or ((.description // "" | ascii_downcase | test("frustration|rocket takeover|team go rocket takeover|forget frustration|remove frustration")))) | select((.start_time <= ($now | tonumber)) and (.end_time >= ($now | tonumber)))] | length')
           if [ "$ACTIVE" -gt 0 ]; then
             echo "active=true" >> $GITHUB_OUTPUT
-            EVENT_INFO=$(echo "$EVENTS" | jq -r --arg now "$NOW" --arg kw "$KEYWORDS" '[.[] | select(((.title // "" | ascii_downcase) | test($kw)) or ((.description // "" | ascii_downcase) | test($kw)) or ((.category // "" | ascii_downcase) | test($kw))) | select(((.start_time // "" | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) <= ($now | tonumber)) and ((.end_time // "" | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= ($now | tonumber)))] | first | "Event: \(.title)\nStart: \(.start_time)\nEnd: \(.end_time)"')
+            EVENT_INFO=$(echo "$EVENTS" | jq -r --arg now "$NOW" '[.[] | .[] | select((.title // "" | ascii_downcase | test("frustration|rocket takeover|team go rocket takeover|forget frustration|remove frustration")) or ((.description // "" | ascii_downcase | test("frustration|rocket takeover|team go rocket takeover|forget frustration|remove frustration")))) | select((.start_time <= ($now | tonumber)) and (.end_time >= ($now | tonumber)))] | first | "Event: \(.title)\nStart: \(.start_time)\nEnd: \(.end_time)"')
             echo "event_info<<EOF" >> $GITHUB_OUTPUT
             echo "$EVENT_INFO" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
