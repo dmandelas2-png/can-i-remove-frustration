@@ -1,0 +1,68 @@
+name: Email Signup Handler
+
+on:
+  repository_dispatch:
+    types: [email-signup]
+
+jobs:
+  handle-signup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.SIGNUP_PAT }}
+
+      - name: Add subscriber and commit
+        run: |
+          EMAIL="${{ github.event.client_payload.email }}"
+          if [ -z "$EMAIL" ]; then
+            echo "No email provided"
+            exit 1
+          fi
+          
+          # Initialize subscribers.json if it doesn't exist
+          if [ ! -f subscribers.json ]; then
+            echo "[]" > subscribers.json
+          fi
+          
+          # Check if email already exists
+          if jq -e --arg email "$EMAIL" '.[] | select(. == $email)' subscribers.json > /dev/null 2>&1; then
+            echo "Email already subscribed: $EMAIL"
+          else
+            # Add email to subscribers list
+            jq --arg email "$EMAIL" '. += [$email]' subscribers.json > tmp.json && mv tmp.json subscribers.json
+            
+            # Commit and push
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add subscribers.json
+            git commit -m "Add subscriber: $EMAIL"
+            git push
+            echo "Added subscriber: $EMAIL"
+          fi
+
+      - name: Send confirmation email via SendGrid
+        env:
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+        run: |
+          EMAIL="${{ github.event.client_payload.email }}"
+          curl -s --request POST \
+            --url https://api.sendgrid.com/v3/mail/send \
+            --header "Authorization: Bearer $SENDGRID_API_KEY" \
+            --header "Content-Type: application/json" \
+            --data "{
+              \"personalizations\": [{
+                \"to\": [{\"email\": \"$EMAIL\"}]
+              }],
+              \"from\": {
+                \"email\": \"dmandelas2@gmail.com\",
+                \"name\": \"Pokemon GO Frustration Alert\"
+              },
+              \"subject\": \"Subscription Confirmed - Giovanni Frustration Alerts\",
+              \"content\": [{
+                \"type\": \"text/html\",
+                \"value\": \"<h2>You're Subscribed!</h2><p>You will receive an email notification whenever Giovanni's Frustration can be removed in Pokemon GO.</p><p>Stay tuned for the next event!</p><p>- Pokemon GO Frustration Alert Team</p>\"
+              }]
+            }"
+          echo "Confirmation email sent to: $EMAIL"

@@ -1,47 +1,94 @@
-name: Check Frustration Removal Event
+﻿name: Check Frustration Removal
+
 on:
   schedule:
     - cron: '*/30 * * * *'
   workflow_dispatch:
+
 jobs:
   check-event:
     runs-on: ubuntu-latest
-    permissions:
-      issues: write
     steps:
-      - name: Check for Frustration Removal Event
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for Frustration removal event
         id: check
         run: |
-          EVENTS=$(curl -s "https://raw.githubusercontent.com/zhenga8533/leak-duck/data/events.json")
-          NOW=$(date -u +%s)
-          ACTIVE=$(echo "$EVENTS" | jq --arg now "$NOW" '[.[] | .[] | select((.title // "" | ascii_downcase | test("frustration|rocket takeover|team go rocket takeover|forget frustration|remove frustration")) or ((.description // "" | ascii_downcase | test("frustration|rocket takeover|team go rocket takeover|forget frustration|remove frustration")))) | select((.start_time <= ($now | tonumber)) and (.end_time >= ($now | tonumber)))] | length')
-          if [ "$ACTIVE" -gt 0 ]; then
+          EVENTS=$(curl -s https://raw.githubusercontent.com/zhenga8533/leak-duck/data/events.json)
+          ACTIVE=$(echo "$EVENTS" | jq '[.[] | .[] | select(.name | test("Frustration"; "i")) | select(.pokemon != null)]')
+          COUNT=$(echo "$ACTIVE" | jq 'length')
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+          if [ "$COUNT" -gt 0 ]; then
             echo "active=true" >> $GITHUB_OUTPUT
-            EVENT_INFO=$(echo "$EVENTS" | jq -r --arg now "$NOW" '[.[] | .[] | select((.title // "" | ascii_downcase | test("frustration|rocket takeover|team go rocket takeover|forget frustration|remove frustration")) or ((.description // "" | ascii_downcase | test("frustration|rocket takeover|team go rocket takeover|forget frustration|remove frustration")))) | select((.start_time <= ($now | tonumber)) and (.end_time >= ($now | tonumber)))] | first | "Event: \(.title)\nStart: \(.start_time)\nEnd: \(.end_time)"')
-            echo "event_info<<EOF" >> $GITHUB_OUTPUT
-            echo "$EVENT_INFO" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
+            EVENT_NAME=$(echo "$ACTIVE" | jq -r '.[0].name')
+            echo "event_name=$EVENT_NAME" >> $GITHUB_OUTPUT
           else
             echo "active=false" >> $GITHUB_OUTPUT
           fi
-      - name: Create Notification Issue
+
+      - name: Create Issue if event active
         if: steps.check.outputs.active == 'true'
         uses: actions/github-script@v7
         with:
           script: |
-            const title = 'Frustration Removal Event is ACTIVE NOW!';
-            const existingIssues = await github.rest.issues.listForRepo({
+            const title = `🎉 Frustration Can Be Removed! - ${new Date().toISOString().split('T')[0]}`;
+
+            const issues = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
               state: 'open',
               labels: 'frustration-alert'
             });
-            if (existingIssues.data.length === 0) {
+            const existing = issues.data.find(i => i.title.includes('Frustration Can Be Removed'));
+            if (!existing) {
               await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title: title,
-            body: '## Pokemon GO: You Can Remove Frustration NOW!\n\nA Frustration removal event is currently active in Pokemon GO! You can now TM away Frustration from your Shadow Pokemon!\n\nCheck your site: https://dmandelas2-png.github.io/can-i-remove-frustration\n\nThis is an automated notification from your GitHub Actions workflow.',
+                body: `The event "${{ steps.check.outputs.event_name }}" is currently active! You can now TM away Frustration from your Shadow Pokemon.`,
                 labels: ['frustration-alert']
               });
             }
+
+      - name: Send notification emails to subscribers
+        if: steps.check.outputs.active == 'true'
+        env:
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+        run: |
+          if [ ! -f subscribers.json ]; then
+            echo "No subscribers file found"
+            exit 0
+          fi
+          
+          SUBSCRIBERS=$(cat subscribers.json)
+          COUNT=$(echo "$SUBSCRIBERS" | jq 'length')
+          
+          if [ "$COUNT" -eq 0 ]; then
+            echo "No subscribers to notify"
+            exit 0
+          fi
+          
+          EVENT_NAME="${{ steps.check.outputs.event_name }}"
+          
+          # Build personalizations array for all subscribers
+          PERSONALIZATIONS=$(echo "$SUBSCRIBERS" | jq -c '[.[] | {"to": [{"email": .}]}]')
+          
+          curl -s --request POST \
+            --url https://api.sendgrid.com/v3/mail/send \
+            --header "Authorization: Bearer $SENDGRID_API_KEY" \
+            --header "Content-Type: application/json" \
+            --data "{
+              \"personalizations\": $PERSONALIZATIONS,
+              \"from\": {
+                \"email\": \"dmandelas2@gmail.com\",
+                \"name\": \"Pokemon GO Frustration Alert\"
+              },
+              \"subject\": \"🎉 Giovanni's Frustration Can Be Removed NOW!\",
+
+              "content": [{
+                "type": "text/html",
+                "value": "<h2>Great News, Trainer!</h2><p>The event <strong>$EVENT_NAME</strong> is currently active!</p><p>You can now use a Charged TM to remove Frustration from your Shadow Pokemon.</p><p>Don't miss this opportunity - these events are limited time only!</p><p>- Pokemon GO Frustration Alert Team</p>"
+              }]
+            }"
+          echo "Notification emails sent to $COUNT subscribers"
